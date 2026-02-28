@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -51,6 +52,44 @@ func main() {
 		msg := fmt.Sprintf(metricsPage, apiCfg.fileserverHits.Load())
 		w.Write([]byte(msg))
 	})
+
+	mux.HandleFunc("POST /api/validate_chirp", func(w http.ResponseWriter, r *http.Request) {
+		type RespBody struct {
+			Body string `json:"body"`
+		}
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		
+		
+		body := RespBody{}
+		err := json.NewDecoder(r.Body).Decode(&body)
+		if err != nil {
+			data, err := json.Marshal(map[string]string{"error": "Something went wrong"})
+			if err != nil {
+				log.Fatal(err)
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write(data)
+			return
+		}
+		
+		if len(body.Body) > 140 {
+			data, err := json.Marshal(map[string]string{"error": "Chirp is too long"})
+			if err != nil {
+				log.Fatal(err)
+			}
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write(data)
+			return
+		}
+
+		data, err := json.Marshal(map[string]bool{"valid": true})
+		if err != nil {
+			log.Fatal(err)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write(data)
+	})	
 
 	log.Fatal(server.ListenAndServe())
 }

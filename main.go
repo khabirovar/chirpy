@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync/atomic"
 )
 
@@ -83,7 +84,23 @@ func main() {
 			return
 		}
 
-		data, err := json.Marshal(map[string]bool{"valid": true})
+		dirty := map[string]bool{
+			"kerfuffle": true,
+			"sharbert": true,
+			"fornax": true,
+		}
+
+		words := strings.Split(body.Body, " ")
+		cleaned := make([]string, 0, len(words))
+		for _, word := range words {
+			if _, isDirty := dirty[strings.ToLower(word)]; isDirty {
+				cleaned =append(cleaned, "****")
+			} else {
+				cleaned = append(cleaned, word)
+			}
+		}
+
+		data, err := json.Marshal(map[string]string{"cleaned_body": strings.Join(cleaned, " ")})
 		if err != nil {
 			log.Fatal(err)
 		}

@@ -1,19 +1,33 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
+
+	"github.com/joho/godotenv"
+	"github.com/khabirovar/chirpy/internal/database"
+	_ "github.com/lib/pq"
 )
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+	db *database.Queries
 }
 
 func main() {
+	godotenv.Load()
+	dbUrl := os.Getenv("DB_URL")
+	db, err := sql.Open("postgres", dbUrl)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	mux := http.NewServeMux()
 
 	server := http.Server{
@@ -21,7 +35,9 @@ func main() {
 		Addr:    ":8080",
 	}
 
-	apiCfg := apiConfig{}
+	apiCfg := apiConfig{
+		db: database.New(db),
+	}
 
 	mux.Handle("/app/", http.StripPrefix("/app/", apiCfg.middlewareMetrics(http.FileServer(http.Dir(".")))))
 
@@ -60,8 +76,7 @@ func main() {
 		}
 
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		
-		
+
 		body := RespBody{}
 		err := json.NewDecoder(r.Body).Decode(&body)
 		if err != nil {
@@ -73,7 +88,7 @@ func main() {
 			w.Write(data)
 			return
 		}
-		
+
 		if len(body.Body) > 140 {
 			data, err := json.Marshal(map[string]string{"error": "Chirp is too long"})
 			if err != nil {
@@ -86,15 +101,15 @@ func main() {
 
 		dirty := map[string]bool{
 			"kerfuffle": true,
-			"sharbert": true,
-			"fornax": true,
+			"sharbert":  true,
+			"fornax":    true,
 		}
 
 		words := strings.Split(body.Body, " ")
 		cleaned := make([]string, 0, len(words))
 		for _, word := range words {
 			if _, isDirty := dirty[strings.ToLower(word)]; isDirty {
-				cleaned =append(cleaned, "****")
+				cleaned = append(cleaned, "****")
 			} else {
 				cleaned = append(cleaned, word)
 			}
@@ -106,7 +121,7 @@ func main() {
 		}
 		w.WriteHeader(http.StatusOK)
 		w.Write(data)
-	})	
+	})
 
 	log.Fatal(server.ListenAndServe())
 }

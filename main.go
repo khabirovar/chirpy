@@ -9,7 +9,9 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	"github.com/khabirovar/chirpy/internal/database"
 	_ "github.com/lib/pq"
@@ -17,7 +19,8 @@ import (
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
-	db *database.Queries
+	db             *database.Queries
+	platform       string
 }
 
 func main() {
@@ -36,7 +39,8 @@ func main() {
 	}
 
 	apiCfg := apiConfig{
-		db: database.New(db),
+		db:       database.New(db),
+		platform: os.Getenv("PLATFORM"),
 	}
 
 	mux.Handle("/app/", http.StripPrefix("/app/", apiCfg.middlewareMetrics(http.FileServer(http.Dir(".")))))
@@ -63,6 +67,17 @@ func main() {
 	})
 
 	mux.HandleFunc("POST /admin/reset", func(w http.ResponseWriter, r *http.Request) {
+		if apiCfg.platform != "dev" {
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte("Forbidden"))
+			return
+		}
+
+		err := apiCfg.db.DeleteUsers(r.Context())
+		if err != nil {
+			log.Fatal(err)
+		}
+
 		apiCfg.fileserverHits.Swap(int32(0))
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
@@ -121,6 +136,58 @@ func main() {
 		}
 		w.WriteHeader(http.StatusOK)
 		w.Write(data)
+	})
+
+	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
+		type Params struct {
+			Email string `json:"email"`
+		}
+
+		var params Params
+		err := json.NewDecoder(r.Body).Decode(&params)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			data, err := json.Marshal(map[string]string{"error": err.Error()})
+			if err != nil {
+				log.Fatal(err)
+			}
+			w.Write(data)
+		}
+
+		type User struct {
+			ID        uuid.UUID `json:"id"`
+			CreatedAt time.Time `json:"created_at"`
+			UpdatedAt time.Time `json:"updated_at"`
+			Email     string `json:"email"`
+		}
+
+		var user User
+		userFromDB, err := apiCfg.db.CreateUser(r.Context(), params.Email)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			data, err := json.Marshal(map[string]string{"error": err.Error()})
+			if err != nil {
+				log.Fatal(err)
+			}
+			w.Write(data)
+		}
+		user.ID = userFromDB.ID
+		user.CreatedAt = userFromDB.CreatedAt
+		user.UpdatedAt = userFromDB.UpdatedAt
+		user.Email = userFromDB.Email
+
+		userJson, err := json.Marshal(user)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			data, err := json.Marshal(map[string]string{"error": err.Error()})
+			if err != nil {
+				log.Fatal(err)
+			}
+			w.Write(data)
+		}
+		w.WriteHeader(http.StatusCreated)
+		w.Write(userJson)
 	})
 
 	log.Fatal(server.ListenAndServe())

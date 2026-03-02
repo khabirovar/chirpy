@@ -82,9 +82,10 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	mux.HandleFunc("POST /api/validate_chirp", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /api/chirps", func(w http.ResponseWriter, r *http.Request) {
 		type RespBody struct {
 			Body string `json:"body"`
+			UserID uuid.UUID `json:"user_id"`
 		}
 
 		body := RespBody{}
@@ -114,8 +115,32 @@ func main() {
 				cleaned = append(cleaned, word)
 			}
 		}
+		
+		type Chirp struct {
+			ID        uuid.UUID `json:"id"`
+			CreatedAt time.Time `json:"created_at"`
+			UpdatedAt time.Time `json:"updated_at"`
+			Body      string	`json:"body"`
+			UserID    uuid.UUID `json:"user_id"`
+		}
 
-		respondWithJSON(w, http.StatusOK, map[string]string{"cleaned_body": strings.Join(cleaned, " ")})
+		params := database.CreateChirpParams{
+			Body: body.Body,
+			UserID: body.UserID,
+		}
+		chirpFromDB, err := apiCfg.db.CreateChirp(r.Context(), params)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		chirp := Chirp{
+			ID: chirpFromDB.ID,
+			CreatedAt: chirpFromDB.CreatedAt,
+			UpdatedAt: chirpFromDB.UpdatedAt,
+			Body: chirpFromDB.Body,
+			UserID: chirpFromDB.UserID,
+		}
+		respondWithJSON(w, http.StatusCreated, chirp)
 	})
 
 	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {

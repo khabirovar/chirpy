@@ -68,21 +68,18 @@ func main() {
 
 	mux.HandleFunc("POST /admin/reset", func(w http.ResponseWriter, r *http.Request) {
 		if apiCfg.platform != "dev" {
-			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte("Forbidden"))
+			respondWithError(w, http.StatusForbidden, "Forbidden")
 			return
 		}
 
 		err := apiCfg.db.DeleteUsers(r.Context())
 		if err != nil {
-			log.Fatal(err)
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return 
 		}
 
 		apiCfg.fileserverHits.Swap(int32(0))
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		msg := fmt.Sprintf(metricsPage, apiCfg.fileserverHits.Load())
-		w.Write([]byte(msg))
 	})
 
 	mux.HandleFunc("POST /api/validate_chirp", func(w http.ResponseWriter, r *http.Request) {
@@ -90,27 +87,15 @@ func main() {
 			Body string `json:"body"`
 		}
 
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-
 		body := RespBody{}
 		err := json.NewDecoder(r.Body).Decode(&body)
 		if err != nil {
-			data, err := json.Marshal(map[string]string{"error": "Something went wrong"})
-			if err != nil {
-				log.Fatal(err)
-			}
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write(data)
+			respondWithError(w, http.StatusInternalServerError, "Something went wrong")
 			return
 		}
 
 		if len(body.Body) > 140 {
-			data, err := json.Marshal(map[string]string{"error": "Chirp is too long"})
-			if err != nil {
-				log.Fatal(err)
-			}
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write(data)
+			respondWithError(w, http.StatusBadRequest, "Chirp is too long")
 			return
 		}
 
@@ -130,12 +115,7 @@ func main() {
 			}
 		}
 
-		data, err := json.Marshal(map[string]string{"cleaned_body": strings.Join(cleaned, " ")})
-		if err != nil {
-			log.Fatal(err)
-		}
-		w.WriteHeader(http.StatusOK)
-		w.Write(data)
+		respondWithJSON(w, http.StatusOK, map[string]string{"cleaned_body": strings.Join(cleaned, " ")})
 	})
 
 	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
@@ -147,12 +127,8 @@ func main() {
 		err := json.NewDecoder(r.Body).Decode(&params)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			data, err := json.Marshal(map[string]string{"error": err.Error()})
-			if err != nil {
-				log.Fatal(err)
-			}
-			w.Write(data)
+			respondWithError(w, http.StatusBadRequest, err.Error())
+			return
 		}
 
 		type User struct {
@@ -165,29 +141,16 @@ func main() {
 		var user User
 		userFromDB, err := apiCfg.db.CreateUser(r.Context(), params.Email)
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			data, err := json.Marshal(map[string]string{"error": err.Error()})
-			if err != nil {
-				log.Fatal(err)
-			}
-			w.Write(data)
+			respondWithError(w, http.StatusInternalServerError ,err.Error())
+			return
 		}
+
 		user.ID = userFromDB.ID
 		user.CreatedAt = userFromDB.CreatedAt
 		user.UpdatedAt = userFromDB.UpdatedAt
 		user.Email = userFromDB.Email
 
-		userJson, err := json.Marshal(user)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			data, err := json.Marshal(map[string]string{"error": err.Error()})
-			if err != nil {
-				log.Fatal(err)
-			}
-			w.Write(data)
-		}
-		w.WriteHeader(http.StatusCreated)
-		w.Write(userJson)
+		respondWithJSON(w, http.StatusCreated, user)
 	})
 
 	log.Fatal(server.ListenAndServe())
@@ -199,3 +162,19 @@ func (cfg *apiConfig) middlewareMetrics(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+func respondWithError(w http.ResponseWriter, code int, msg string) {
+	respondWithJSON(w, code, map[string]string{"error": msg})
+}
+
+func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		data, _ = json.Marshal(map[string]string{"marshaling error": err.Error()})
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(code)
+	w.Write(data)
+}
+

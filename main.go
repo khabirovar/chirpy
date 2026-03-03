@@ -23,6 +23,21 @@ type apiConfig struct {
 	platform       string
 }
 
+type User struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string `json:"email"`
+}
+
+type Chirp struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body      string	`json:"body"`
+	UserID    uuid.UUID `json:"user_id"`
+}
+
 func main() {
 	godotenv.Load()
 	dbUrl := os.Getenv("DB_URL")
@@ -115,14 +130,6 @@ func main() {
 				cleaned = append(cleaned, word)
 			}
 		}
-		
-		type Chirp struct {
-			ID        uuid.UUID `json:"id"`
-			CreatedAt time.Time `json:"created_at"`
-			UpdatedAt time.Time `json:"updated_at"`
-			Body      string	`json:"body"`
-			UserID    uuid.UUID `json:"user_id"`
-		}
 
 		params := database.CreateChirpParams{
 			Body: body.Body,
@@ -156,13 +163,6 @@ func main() {
 			return
 		}
 
-		type User struct {
-			ID        uuid.UUID `json:"id"`
-			CreatedAt time.Time `json:"created_at"`
-			UpdatedAt time.Time `json:"updated_at"`
-			Email     string `json:"email"`
-		}
-
 		var user User
 		userFromDB, err := apiCfg.db.CreateUser(r.Context(), params.Email)
 		if err != nil {
@@ -176,6 +176,24 @@ func main() {
 		user.Email = userFromDB.Email
 
 		respondWithJSON(w, http.StatusCreated, user)
+	})
+
+	mux.HandleFunc("GET /api/chirps", func(w http.ResponseWriter, r *http.Request) {
+		chirpsFromDB, err := apiCfg.db.GetChirps(r.Context())
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		chirps := make([]Chirp, len(chirpsFromDB))
+		for idx := range chirpsFromDB {
+			chirps[idx].ID = chirpsFromDB[idx].ID
+			chirps[idx].CreatedAt = chirpsFromDB[idx].CreatedAt
+			chirps[idx].UpdatedAt = chirpsFromDB[idx].UpdatedAt
+			chirps[idx].Body = chirpsFromDB[idx].Body
+			chirps[idx].UserID = chirpsFromDB[idx].UserID
+		}
+		respondWithJSON(w, http.StatusOK, chirps)
 	})
 
 	log.Fatal(server.ListenAndServe())

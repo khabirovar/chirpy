@@ -27,14 +27,14 @@ type User struct {
 	ID        uuid.UUID `json:"id"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
-	Email     string `json:"email"`
+	Email     string    `json:"email"`
 }
 
 type Chirp struct {
 	ID        uuid.UUID `json:"id"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
-	Body      string	`json:"body"`
+	Body      string    `json:"body"`
 	UserID    uuid.UUID `json:"user_id"`
 }
 
@@ -90,7 +90,7 @@ func main() {
 		err := apiCfg.db.DeleteUsers(r.Context())
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, err.Error())
-			return 
+			return
 		}
 
 		apiCfg.fileserverHits.Swap(int32(0))
@@ -99,7 +99,7 @@ func main() {
 
 	mux.HandleFunc("POST /api/chirps", func(w http.ResponseWriter, r *http.Request) {
 		type RespBody struct {
-			Body string `json:"body"`
+			Body   string    `json:"body"`
 			UserID uuid.UUID `json:"user_id"`
 		}
 
@@ -132,7 +132,7 @@ func main() {
 		}
 
 		params := database.CreateChirpParams{
-			Body: body.Body,
+			Body:   body.Body,
 			UserID: body.UserID,
 		}
 		chirpFromDB, err := apiCfg.db.CreateChirp(r.Context(), params)
@@ -141,11 +141,11 @@ func main() {
 			return
 		}
 		chirp := Chirp{
-			ID: chirpFromDB.ID,
+			ID:        chirpFromDB.ID,
 			CreatedAt: chirpFromDB.CreatedAt,
 			UpdatedAt: chirpFromDB.UpdatedAt,
-			Body: chirpFromDB.Body,
-			UserID: chirpFromDB.UserID,
+			Body:      chirpFromDB.Body,
+			UserID:    chirpFromDB.UserID,
 		}
 		respondWithJSON(w, http.StatusCreated, chirp)
 	})
@@ -166,7 +166,7 @@ func main() {
 		var user User
 		userFromDB, err := apiCfg.db.CreateUser(r.Context(), params.Email)
 		if err != nil {
-			respondWithError(w, http.StatusInternalServerError ,err.Error())
+			respondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
@@ -196,6 +196,34 @@ func main() {
 		respondWithJSON(w, http.StatusOK, chirps)
 	})
 
+	mux.HandleFunc("GET /api/chirps/{chirpID}", func(w http.ResponseWriter, r *http.Request) {
+		chirpIDString := r.PathValue("chirpID")
+		if chirpIDString == "" {
+			respondWithError(w, http.StatusBadRequest, "Wrong chirp ID")
+			return
+		}
+
+		chirpID, err := uuid.Parse(chirpIDString)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		chirpFromDB, err := apiCfg.db.GetChirpByID(r.Context(), chirpID)
+		if err != nil {
+			respondWithError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		chirp := Chirp{
+			ID:        chirpFromDB.ID,
+			CreatedAt: chirpFromDB.CreatedAt,
+			UpdatedAt: chirpFromDB.UpdatedAt,
+			Body:      chirpFromDB.Body,
+			UserID:    chirpFromDB.UserID,
+		}
+		respondWithJSON(w, http.StatusOK, chirp)
+	})
+
 	log.Fatal(server.ListenAndServe())
 }
 
@@ -220,4 +248,3 @@ func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 	w.WriteHeader(code)
 	w.Write(data)
 }
-

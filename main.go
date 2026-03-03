@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
+	"github.com/khabirovar/chirpy/internal/auth"
 	"github.com/khabirovar/chirpy/internal/database"
 	_ "github.com/lib/pq"
 )
@@ -153,18 +154,28 @@ func main() {
 	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
 		type Params struct {
 			Email string `json:"email"`
+			Password string `json:"password"`
 		}
 
-		var params Params
-		err := json.NewDecoder(r.Body).Decode(&params)
+		var paramsJson Params
+		err := json.NewDecoder(r.Body).Decode(&paramsJson)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		if err != nil {
 			respondWithError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 
+		params := database.CreateUserParams{
+			Email: paramsJson.Email,	
+		}
+		params.HashedPassword, err = auth.HashPassword(paramsJson.Password)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
 		var user User
-		userFromDB, err := apiCfg.db.CreateUser(r.Context(), params.Email)
+		userFromDB, err := apiCfg.db.CreateUser(r.Context(), params)
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -176,6 +187,43 @@ func main() {
 		user.Email = userFromDB.Email
 
 		respondWithJSON(w, http.StatusCreated, user)
+	})
+
+	mux.HandleFunc("POST /api/login", func(w http.ResponseWriter, r *http.Request) {
+		type Login struct {
+			Email string `json:"email"`
+			Password string `json:"password"`
+		}
+
+		var login Login
+		err := json.NewDecoder(r.Body).Decode(&login)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		userFromDB, err := apiCfg.db.GetUserByEmail(r.Context(), login.Email)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		match, err := auth.CheckPasswordHash(login.Password, userFromDB.HashedPassword)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return 
+		}
+		if !match {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		user := User{
+			ID: userFromDB.ID,
+			CreatedAt: userFromDB.CreatedAt,
+			UpdatedAt: userFromDB.UpdatedAt,
+			Email: userFromDB.Email,
+		}
+		respondWithJSON(w, http.StatusOK, user)
 	})
 
 	mux.HandleFunc("GET /api/chirps", func(w http.ResponseWriter, r *http.Request) {

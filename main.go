@@ -26,12 +26,12 @@ type apiConfig struct {
 }
 
 type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
-	Token     string    `json:"token"`
-	RefreshToken string `json:"refresh_token"`
+	ID           uuid.UUID `json:"id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Email        string    `json:"email"`
+	Token        string    `json:"token"`
+	RefreshToken string    `json:"refresh_token"`
 }
 
 type Chirp struct {
@@ -40,6 +40,11 @@ type Chirp struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	Body      string    `json:"body"`
 	UserID    uuid.UUID `json:"user_id"`
+}
+
+type UserStruct struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
 func main() {
@@ -170,14 +175,8 @@ func main() {
 	})
 
 	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
-		type Params struct {
-			Email    string `json:"email"`
-			Password string `json:"password"`
-		}
-
-		var paramsJson Params
+		var paramsJson UserStruct
 		err := json.NewDecoder(r.Body).Decode(&paramsJson)
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		if err != nil {
 			respondWithError(w, http.StatusBadRequest, err.Error())
 			return
@@ -207,10 +206,54 @@ func main() {
 		respondWithJSON(w, http.StatusCreated, user)
 	})
 
+	mux.HandleFunc("PUT /api/users", func(w http.ResponseWriter, r *http.Request) {
+		bearerToken, err := auth.GetBearerToken(r.Header)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+
+		userIDFromToken, err := auth.ValidateJWT(bearerToken, apiCfg.tokenSecret)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+
+		var userJson UserStruct
+		err = json.NewDecoder(r.Body).Decode(&userJson)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+
+		hashedPassword, err := auth.HashPassword(userJson.Password)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+
+		userUpdateParams := database.UpdateUserParams{
+			ID:             userIDFromToken,
+			Email:          userJson.Email,
+			HashedPassword: hashedPassword,
+		}
+		userFromDB, err := apiCfg.db.UpdateUser(r.Context(), userUpdateParams)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		var user User
+		user.ID = userFromDB.ID
+		user.CreatedAt = userFromDB.CreatedAt
+		user.UpdatedAt = userFromDB.UpdatedAt
+		user.Email = userFromDB.Email
+		respondWithJSON(w, http.StatusOK, user)
+	})
+
 	mux.HandleFunc("POST /api/login", func(w http.ResponseWriter, r *http.Request) {
 		type Login struct {
-			Email     string        `json:"email"`
-			Password  string        `json:"password"`
+			Email    string `json:"email"`
+			Password string `json:"password"`
 		}
 
 		var login Login
@@ -243,9 +286,9 @@ func main() {
 
 		refreshToken := auth.MakeRefreshToken()
 		paramsRefreshToken := database.CreateRefreshTokenParams{
-			Token: refreshToken,
-			UserID: userFromDB.ID,
-			ExpiresAt: time.Now().AddDate(0,0,60),
+			Token:     refreshToken,
+			UserID:    userFromDB.ID,
+			ExpiresAt: time.Now().AddDate(0, 0, 60),
 		}
 		err = apiCfg.db.CreateRefreshToken(r.Context(), paramsRefreshToken)
 		if err != nil {
@@ -254,11 +297,11 @@ func main() {
 		}
 
 		user := User{
-			ID:        userFromDB.ID,
-			CreatedAt: userFromDB.CreatedAt,
-			UpdatedAt: userFromDB.UpdatedAt,
-			Email:     userFromDB.Email,
-			Token:     token,
+			ID:           userFromDB.ID,
+			CreatedAt:    userFromDB.CreatedAt,
+			UpdatedAt:    userFromDB.UpdatedAt,
+			Email:        userFromDB.Email,
+			Token:        token,
 			RefreshToken: refreshToken,
 		}
 		respondWithJSON(w, http.StatusOK, user)
@@ -279,13 +322,13 @@ func main() {
 		now := time.Now().UTC()
 		if now.After(refreshTokenDB.ExpiresAt) || refreshTokenDB.RevokedAt.Valid { //now.After(refreshTokenDB.RevokedAt.Time) {
 			respondWithError(w, http.StatusUnauthorized, "Timestamps are expired")
-			return 
+			return
 		}
 
 		token, err := auth.MakeJWT(refreshTokenDB.UserID, apiCfg.tokenSecret, time.Hour)
 		if err != nil {
 			respondWithError(w, http.StatusUnauthorized, err.Error())
-			return 
+			return
 		}
 		respondWithJSON(w, http.StatusOK, map[string]string{"token": token})
 	})

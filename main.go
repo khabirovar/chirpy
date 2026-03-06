@@ -32,6 +32,7 @@ type User struct {
 	Email        string    `json:"email"`
 	Token        string    `json:"token"`
 	RefreshToken string    `json:"refresh_token"`
+	IsChirpyRed  bool      `json:"is_chirpy_red"`
 }
 
 type Chirp struct {
@@ -202,6 +203,7 @@ func main() {
 		user.CreatedAt = userFromDB.CreatedAt
 		user.UpdatedAt = userFromDB.UpdatedAt
 		user.Email = userFromDB.Email
+		user.IsChirpyRed = userFromDB.IsChirpyRed
 
 		respondWithJSON(w, http.StatusCreated, user)
 	})
@@ -247,6 +249,7 @@ func main() {
 		user.CreatedAt = userFromDB.CreatedAt
 		user.UpdatedAt = userFromDB.UpdatedAt
 		user.Email = userFromDB.Email
+		user.IsChirpyRed = userFromDB.IsChirpyRed
 		respondWithJSON(w, http.StatusOK, user)
 	})
 
@@ -303,6 +306,7 @@ func main() {
 			Email:        userFromDB.Email,
 			Token:        token,
 			RefreshToken: refreshToken,
+			IsChirpyRed:  userFromDB.IsChirpyRed,
 		}
 		respondWithJSON(w, http.StatusOK, user)
 	})
@@ -423,7 +427,7 @@ func main() {
 
 		if userID != chirp.UserID {
 			respondWithError(w, http.StatusForbidden, "User not own this chirp")
-			return 
+			return
 		}
 
 		err = apiCfg.db.DeleteChirpByID(r.Context(), chirp.ID)
@@ -431,6 +435,34 @@ func main() {
 			respondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	mux.HandleFunc("POST /api/polka/webhooks", func(w http.ResponseWriter, r *http.Request) {
+		type WebhookData struct {
+			Event string `json:"event"`
+			Data  struct {
+				UserID uuid.UUID `json:"user_id"`
+			} `json:"data"`
+		}
+
+		var webhookData WebhookData
+		err := json.NewDecoder(r.Body).Decode(&webhookData)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if webhookData.Event != "user.upgraded" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		err = apiCfg.db.MakeUserRed(r.Context(), webhookData.Data.UserID)
+		if err != nil {
+			respondWithError(w, http.StatusNotFound, err.Error())
+			return
+		}
+
 		w.WriteHeader(http.StatusNoContent)
 	})
 

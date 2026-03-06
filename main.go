@@ -393,6 +393,47 @@ func main() {
 		respondWithJSON(w, http.StatusOK, chirp)
 	})
 
+	mux.HandleFunc("DELETE /api/chirps/{chirpID}", func(w http.ResponseWriter, r *http.Request) {
+		bearerToken, err := auth.GetBearerToken(r.Header)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+		userID, err := auth.ValidateJWT(bearerToken, apiCfg.tokenSecret)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+
+		chirpIDString := r.PathValue("chirpID")
+		if chirpIDString == "" {
+			respondWithError(w, http.StatusNotFound, "Wrong chirp id")
+			return
+		}
+		chirpID, err := uuid.Parse(chirpIDString)
+		if err != nil {
+			respondWithError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		chirp, err := apiCfg.db.GetChirpByID(r.Context(), chirpID)
+		if err != nil {
+			respondWithError(w, http.StatusNotFound, err.Error())
+			return
+		}
+
+		if userID != chirp.UserID {
+			respondWithError(w, http.StatusForbidden, "User not own this chirp")
+			return 
+		}
+
+		err = apiCfg.db.DeleteChirpByID(r.Context(), chirp.ID)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	log.Fatal(server.ListenAndServe())
 }
 

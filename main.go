@@ -23,6 +23,7 @@ type apiConfig struct {
 	db             *database.Queries
 	platform       string
 	tokenSecret    string
+	polkaKey       string
 }
 
 type User struct {
@@ -67,6 +68,7 @@ func main() {
 		db:          database.New(db),
 		platform:    os.Getenv("PLATFORM"),
 		tokenSecret: os.Getenv("TOKEN_SECRET"),
+		polkaKey:    os.Getenv("POLKA_KEY"),
 	}
 
 	mux.Handle("/app/", http.StripPrefix("/app/", apiCfg.middlewareMetrics(http.FileServer(http.Dir(".")))))
@@ -439,6 +441,17 @@ func main() {
 	})
 
 	mux.HandleFunc("POST /api/polka/webhooks", func(w http.ResponseWriter, r *http.Request) {
+		apiToken, err := auth.GetAPIKey(r.Header)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+
+		if apiToken != apiCfg.polkaKey {
+			respondWithError(w, http.StatusUnauthorized, "Wrong api key")
+			return
+		}
+		
 		type WebhookData struct {
 			Event string `json:"event"`
 			Data  struct {
@@ -447,7 +460,7 @@ func main() {
 		}
 
 		var webhookData WebhookData
-		err := json.NewDecoder(r.Body).Decode(&webhookData)
+		err = json.NewDecoder(r.Body).Decode(&webhookData)
 		if err != nil {
 			respondWithError(w, http.StatusBadRequest, err.Error())
 			return

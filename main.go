@@ -354,10 +354,26 @@ func main() {
 	})
 
 	mux.HandleFunc("GET /api/chirps", func(w http.ResponseWriter, r *http.Request) {
-		chirpsFromDB, err := apiCfg.db.GetChirps(r.Context())
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, err.Error())
-			return
+		authorID := r.URL.Query().Get("author_id")
+		var chirpsFromDB []database.Chirp
+
+		if authorID == "" {
+			chirpsFromDB, err = apiCfg.db.GetChirps(r.Context())
+			if err != nil {
+				respondWithError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		} else {
+			userID, err := uuid.Parse(authorID)
+			if err != nil {
+				respondWithError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			chirpsFromDB, err = apiCfg.db.GetChirpsByAuthor(r.Context(), userID)
+			if err != nil {
+				respondWithError(w, http.StatusNotFound, err.Error())
+				return
+			}
 		}
 
 		chirps := make([]Chirp, len(chirpsFromDB))
@@ -451,7 +467,7 @@ func main() {
 			respondWithError(w, http.StatusUnauthorized, "Wrong api key")
 			return
 		}
-		
+
 		type WebhookData struct {
 			Event string `json:"event"`
 			Data  struct {

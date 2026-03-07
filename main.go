@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -384,6 +385,15 @@ func main() {
 			chirps[idx].Body = chirpsFromDB[idx].Body
 			chirps[idx].UserID = chirpsFromDB[idx].UserID
 		}
+
+		sorting := r.URL.Query().Get("sort")
+
+		if sorting == "asc" {
+			sort.Slice(chirps, func(i, j int) bool { return chirps[i].CreatedAt.Before(chirps[j].CreatedAt) })
+		} else if sorting == "desc" {
+			sort.Slice(chirps, func(i, j int) bool { return chirps[i].CreatedAt.After(chirps[j].CreatedAt) })
+		}
+
 		respondWithJSON(w, http.StatusOK, chirps)
 	})
 
